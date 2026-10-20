@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ProTrade SMC Terminal</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<script src="https://s3.tradingview.com/tv.js"></script>
+<script defer src="https://cdn.tailwindcss.com"></script>
+<script defer src="https://s3.tradingview.com/tv.js"></script>
 <style>
   body { background:#0f172a; color:#e2e8f0; font-family:system-ui,-apple-system,sans-serif; }
   .card { background:#1e293b; border:1px solid #334155; }
@@ -37,3 +37,750 @@
   </header>
 
   <!-- KONTROL -->
+  <div class="card p-4 rounded-xl grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+    <div>
+      <label class="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Pair</label>
+      <select id="pairSel" class="w-full bg-slate-900 border border-slate-700 text-white p-2 rounded-lg text-xs"></select>
+    </div>
+    <div>
+      <label class="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Gaya (TF)</label>
+      <select id="styleSel" class="w-full bg-slate-900 border border-slate-700 text-white p-2 rounded-lg text-xs"></select>
+    </div>
+    <div>
+      <label class="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Metode SL</label>
+      <select id="slSel" class="w-full bg-slate-900 border border-slate-700 text-white p-2 rounded-lg text-xs">
+        <option value="structure">Di luar origin impuls</option>
+        <option value="atr">ATR dinamis</option>
+      </select>
+    </div>
+    <div>
+      <label class="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Sumber data</label>
+      <select id="modeSel" class="w-full bg-slate-900 border border-slate-700 text-white p-2 rounded-lg text-xs">
+        <option value="binance">Binance (crypto, XAU via PAXG, tanpa key)</option>
+        <option value="csv">Upload CSV (semua pair)</option>
+        <option value="td">Twelve Data langsung (API key manual)</option>
+        <option value="live">LIVE (Twelve Data via Worker)</option>
+        <option value="demo">DEMO (simulasi)</option>
+      </select>
+    </div>
+    <button id="scanBtn" class="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold px-4 py-2 rounded-lg text-xs uppercase tracking-wider shadow-lg active:scale-95">⚡ Scan Ulang</button>
+  </div>
+
+  <!-- BARIS ERROR (terlihat langsung, tidak perlu scroll ke bawah) -->
+  <div id="errLine" class="text-xs text-red-400 font-mono break-words px-1"></div>
+
+  <!-- API KEY TWELVE DATA (manual, tidak disimpan di dalam file) -->
+  <div class="card p-3 rounded-xl flex flex-col sm:flex-row sm:items-center gap-2 text-xs">
+    <span class="font-bold text-slate-300 whitespace-nowrap">Twelve Data API key:</span>
+    <input id="tdKey" type="password" placeholder="tempel API key di sini" autocomplete="off" class="flex-1 bg-slate-900 border border-slate-700 text-white p-2 rounded-lg text-xs">
+    <label class="flex items-center gap-1 text-slate-400 whitespace-nowrap"><input id="tdRemember" type="checkbox"> ingat di browser ini</label>
+    <p class="w-full text-[11px] text-slate-500">Key dipakai saat Sumber data = "Twelve Data langsung". Mode itu otomatis dipilih begitu key diisi. Key tidak disimpan di dalam file.</p>
+  </div>
+
+  <!-- SUMBER CSV -->
+  <div class="card p-3 rounded-xl flex flex-col sm:flex-row sm:items-center gap-2 text-xs">
+    <span class="font-bold text-slate-300 whitespace-nowrap">Data CSV (mode Upload):</span>
+    <input id="csvFile" type="file" accept=".csv,.txt" class="text-xs text-slate-300 file:mr-2 file:px-3 file:py-1 file:rounded file:border-0 file:bg-slate-700 file:text-white">
+    <span id="csvInfo" class="text-slate-400">Pakai file timeframe LTF sesuai gaya: Scalping = M1, Intraday = M5, Day Trade = M15, Swing = M30.</span>
+  </div>
+
+  <!-- SCANNER -->
+  <div class="card p-3.5 rounded-xl space-y-2">
+    <div class="text-xs font-bold uppercase tracking-wider text-slate-300 border-b border-slate-800 pb-1.5">🔍 Status Scanner (dihitung dari data)</div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+      <div class="bg-slate-900 p-2 rounded border border-slate-800">
+        <span class="text-slate-400 block text-[10px]">1. Bias HTF (struktur)</span>
+        <span id="sHtf" class="font-bold text-slate-400">—</span>
+      </div>
+      <div class="bg-slate-900 p-2 rounded border border-slate-800">
+        <span class="text-slate-400 block text-[10px]">2. Struktur LTF</span>
+        <span id="sLtf" class="font-bold text-slate-400">—</span>
+      </div>
+      <div class="bg-slate-900 p-2 rounded border border-slate-800">
+        <span class="text-slate-400 block text-[10px]">3. FVG searah</span>
+        <span id="sFvg" class="font-bold text-slate-400">—</span>
+      </div>
+      <div class="bg-slate-900 p-2 rounded border border-slate-800">
+        <span class="text-slate-400 block text-[10px]">4. Trigger entry</span>
+        <span id="sTrig" class="font-bold text-slate-400">—</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+    <!-- CHART -->
+    <div class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3 content-start">
+      <div class="card p-1.5 rounded-xl">
+        <div class="flex justify-between items-center px-2 py-1 bg-slate-900 rounded border border-slate-800 mb-1">
+          <span class="text-[11px] font-bold text-sky-400">🌐 HTF <span id="htfLbl">—</span></span>
+          <span class="text-[10px] text-slate-400 font-mono">Konteks struktur</span>
+        </div>
+        <div class="h-[340px] rounded-lg overflow-hidden"><div id="tv_htf" class="w-full h-full"></div></div>
+      </div>
+      <div class="card p-1.5 rounded-xl">
+        <div class="flex justify-between items-center px-2 py-1 bg-slate-900 rounded border border-slate-800 mb-1">
+          <span class="text-[11px] font-bold text-emerald-400">🎯 LTF <span id="ltfLbl">—</span></span>
+          <span class="text-[10px] text-slate-400 font-mono">Timing entry</span>
+        </div>
+        <div class="h-[340px] rounded-lg overflow-hidden"><div id="tv_ltf" class="w-full h-full"></div></div>
+      </div>
+      <p class="md:col-span-2 text-[11px] text-slate-500">Chart TradingView menampilkan harga pasar langsung. Analisa dan sinyal mengikuti sumber data yang dipilih di atas.</p>
+    </div>
+
+    <!-- SETUP -->
+    <div id="panel" class="card p-4 rounded-xl space-y-3">
+      <div class="flex justify-between items-center border-b border-slate-700 pb-2">
+        <span class="text-xs font-bold uppercase tracking-wider text-slate-300">🎯 Setup</span>
+        <span id="statusBadge" class="px-2.5 py-1 rounded text-[11px] font-bold uppercase b-none">—</span>
+      </div>
+
+      <div class="flex justify-between items-center bg-slate-900 p-2 rounded text-xs">
+        <span class="font-bold text-slate-300">Arah</span>
+        <span id="sigDir" class="font-bold px-2.5 py-0.5 rounded text-xs b-none">—</span>
+      </div>
+
+      <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800 text-xs space-y-1.5">
+        <div class="flex justify-between"><span class="text-slate-400">Zona FVG</span><span id="zone" class="font-mono font-bold text-amber-400">—</span></div>
+        <div class="flex justify-between"><span class="text-slate-400">Entry limit (tengah zona)</span><span id="entry" class="font-mono font-bold text-amber-400">—</span></div>
+      </div>
+
+      <div class="space-y-1.5 text-xs">
+        <div id="rowTP1" class="flex justify-between items-center bg-slate-900/60 p-1.5 rounded border border-slate-800">
+          <label class="flex items-center gap-2 text-emerald-400 font-mono text-[11px] cursor-pointer">
+            <input id="cbTP1" type="checkbox" onchange="toggleRow('rowTP1','tp-hit',this)" class="w-3.5 h-3.5">
+            TP1 <span id="tp1Src" class="text-slate-500 text-[10px]">—</span>
+          </label>
+          <span class="font-mono font-bold text-emerald-400 text-right"><span id="tp1">—</span> <span id="rr1" class="text-slate-400 text-[10px]"></span></span>
+        </div>
+        <div id="rowTP2" class="flex justify-between items-center bg-slate-900/60 p-1.5 rounded border border-slate-800">
+          <label class="flex items-center gap-2 text-emerald-400 font-mono text-[11px] cursor-pointer">
+            <input id="cbTP2" type="checkbox" onchange="toggleRow('rowTP2','tp-hit',this)" class="w-3.5 h-3.5">
+            TP2 <span id="tp2Src" class="text-slate-500 text-[10px]">—</span>
+          </label>
+          <span class="font-mono font-bold text-emerald-400 text-right"><span id="tp2">—</span> <span id="rr2" class="text-slate-400 text-[10px]"></span></span>
+        </div>
+        <div id="rowTP3" class="flex justify-between items-center bg-slate-900/60 p-1.5 rounded border border-slate-800">
+          <label class="flex items-center gap-2 text-emerald-400 font-mono text-[11px] cursor-pointer">
+            <input id="cbTP3" type="checkbox" onchange="toggleRow('rowTP3','tp-hit',this)" class="w-3.5 h-3.5">
+            TP3 <span id="tp3Src" class="text-slate-500 text-[10px]">—</span>
+          </label>
+          <span class="font-mono font-bold text-emerald-400 text-right"><span id="tp3">—</span> <span id="rr3" class="text-slate-400 text-[10px]"></span></span>
+        </div>
+        <div id="rowSL" class="flex justify-between items-center bg-red-950/20 p-1.5 rounded border border-red-900/40">
+          <label class="flex items-center gap-2 text-red-400 font-mono text-[11px] cursor-pointer">
+            <input id="cbSL" type="checkbox" onchange="toggleRow('rowSL','sl-hit',this)" class="w-3.5 h-3.5">
+            ❌ Stop Loss
+          </label>
+          <span id="sl" class="font-mono font-bold text-red-400">—</span>
+        </div>
+      </div>
+
+      <ul id="checks" class="text-[11px] space-y-1"></ul>
+
+      <div class="border-t border-slate-700 pt-2">
+        <span class="text-[10px] font-bold uppercase tracking-wider text-amber-400">💡 Alasan (otomatis)</span>
+        <div id="reasonBox" class="mt-1 bg-slate-900 p-2.5 rounded-lg border border-slate-800 text-[11px] text-slate-300 leading-relaxed">Menunggu data…</div>
+      </div>
+
+      <p class="text-[10px] text-slate-500">Alat bantu analisa berbasis aturan, bukan rekomendasi finansial. Lakukan backtest sebelum dipakai.</p>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ========== KONFIGURASI ========== */
+const WORKER_URL = "";      // isi URL Worker kamu, contoh: "https://signal-proxy.namakamu.workers.dev"
+const REFRESH_MS = 60000;   // auto-scan tiap 60 detik (hanya mode LIVE)
+
+const PAIRS = {
+  "XAU/USD": { group: "Commodity", name: "Gold",     tv: "OANDA:XAUUSD",    td: "XAU/USD", dec: 2, base: 4130 },
+  "XAG/USD": { group: "Commodity", name: "Silver",   tv: "OANDA:XAGUSD",    td: "XAG/USD", dec: 3, base: 31.85 },
+  "WTI/USD": { group: "Commodity", name: "Oil WTI",  tv: "TVC:USOIL",       td: "WTI/USD", dec: 2, base: 71.6 },
+  "BTC/USD": { group: "Crypto",    name: "Bitcoin",  tv: "BINANCE:BTCUSDT", td: "BTC/USD", dec: 2, base: 68500 },
+  "ETH/USD": { group: "Crypto",    name: "Ethereum", tv: "BINANCE:ETHUSDT", td: "ETH/USD", dec: 2, base: 2645 },
+  "EUR/USD": { group: "Forex",     name: "",         tv: "FX:EURUSD",       td: "EUR/USD", dec: 5, base: 1.0855 },
+  "GBP/USD": { group: "Forex",     name: "",         tv: "FX:GBPUSD",       td: "GBP/USD", dec: 5, base: 1.2985 },
+  "USD/JPY": { group: "Forex",     name: "",         tv: "FX:USDJPY",       td: "USD/JPY", dec: 3, base: 150.0 }
+};
+
+// ratio = jumlah candle LTF dalam satu candle HTF (dipakai untuk mode DEMO)
+const STYLES = {
+  scalping:   { label: "Scalping",  htf: { tv: "15",  td: "15min", txt: "M15" }, ltf: { tv: "1",  td: "1min",  txt: "M1"  }, ratio: 15, slAtr: 1.0 },
+  intraday:   { label: "Intraday",  htf: { tv: "60",  td: "1h",    txt: "H1"  }, ltf: { tv: "5",  td: "5min",  txt: "M5"  }, ratio: 12, slAtr: 1.2 },
+  daytrading: { label: "Day Trade", htf: { tv: "240", td: "4h",    txt: "H4"  }, ltf: { tv: "15", td: "15min", txt: "M15" }, ratio: 16, slAtr: 1.5 },
+  swing:      { label: "Swing",     htf: { tv: "D",   td: "1day",  txt: "D1"  }, ltf: { tv: "30", td: "30min", txt: "M30" }, ratio: 48, slAtr: 2.0 }
+};
+
+/* ========== SUMBER DATA ========== */
+// Binance publik, tanpa API key. XAU/USD memakai PAXG sebagai proksi: harganya mendekati emas, tidak persis sama.
+const BINANCE = { "XAU/USD": "PAXGUSDT", "BTC/USD": "BTCUSDT", "ETH/USD": "ETHUSDT" };
+const BN_INT = { "1min": "1m", "5min": "5m", "15min": "15m", "30min": "30m", "1h": "1h", "4h": "4h", "1day": "1d" };
+// Timeframe LTF (menit) per gaya. Dipakai untuk memvalidasi file CSV.
+const LTF_MIN = { scalping: 1, intraday: 5, daytrading: 15, swing: 30 };
+
+/* ========== UTIL ========== */
+const $ = id => document.getElementById(id);
+const fmt = (v, d) => (typeof v === 'number' && isFinite(v)) ? v.toFixed(d) : '—';
+function put(id, text, cls) { const el = $(id); el.textContent = text; el.className = 'font-bold ' + cls; }
+function hash(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+function prng(seed) {
+  return function () {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* ========== DATA ========== */
+async function fetchCandles(sym, tdInterval, size) {
+  const url = `${WORKER_URL}/api/candles?symbol=${encodeURIComponent(PAIRS[sym].td)}&interval=${tdInterval}&outputsize=${size}`;
+  const r = await fetch(url);
+  let j;
+  try { j = await r.json(); } catch (e) { throw new Error('Respons Worker bukan JSON (HTTP ' + r.status + ')'); }
+  if (!r.ok || !Array.isArray(j.values)) throw new Error(j.message || 'Data kosong dari Twelve Data');
+  // Twelve Data mengirim data terbaru lebih dulu, jadi dibalik ke urutan lama → baru.
+  // Candle terakhir masih berjalan (belum close), dibuang agar sinyal tidak repaint.
+  return j.values.slice().reverse().slice(0, -1).map(v => ({
+    t: v.datetime, o: +v.open, h: +v.high, l: +v.low, c: +v.close
+  }));
+}
+
+// Mengambil candle langsung dari Twelve Data memakai API key yang diisi manual di halaman.
+async function fetchTD(sym, tdInterval, size, key) {
+  const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(PAIRS[sym].td)}&interval=${tdInterval}&outputsize=${size}&apikey=${encodeURIComponent(key)}`;
+  const r = await fetch(url);
+  let j;
+  try { j = await r.json(); } catch (e) { throw new Error('Respons Twelve Data bukan JSON (HTTP ' + r.status + ')'); }
+  if (!r.ok || !Array.isArray(j.values)) throw new Error(j.message || 'Data kosong dari Twelve Data');
+  return j.values.slice().reverse().slice(0, -1).map(v => ({
+    t: v.datetime, o: +v.open, h: +v.high, l: +v.low, c: +v.close
+  }));
+}
+
+// Key hanya disimpan di localStorage browser ini, dan hanya jika kotak "ingat" dicentang. Tidak pernah masuk ke file.
+function saveKey() {
+  try {
+    if ($('tdRemember').checked) localStorage.setItem('tdKey', $('tdKey').value.trim());
+    else localStorage.removeItem('tdKey');
+  } catch (e) { /* localStorage tidak tersedia, abaikan */ }
+}
+
+async function fetchBinance(sym, tdInterval, size) {
+  const bs = BINANCE[sym];
+  if (!bs) throw new Error(sym + ' tidak tersedia di Binance. Pakai mode CSV atau LIVE.');
+  const url = `https://api.binance.com/api/v3/klines?symbol=${bs}&interval=${BN_INT[tdInterval]}&limit=${size}`;
+  const r = await fetch(url);
+  const j = await r.json();
+  if (!r.ok || !Array.isArray(j)) throw new Error((j && j.msg) || 'Gagal ambil data Binance (HTTP ' + r.status + ')');
+  // Candle terakhir di Binance masih berjalan, jadi dibuang agar tidak repaint
+  return j.slice(0, -1).map(k => ({ t: new Date(k[0]).toISOString(), o: +k[1], h: +k[2], l: +k[3], c: +k[4] }));
+}
+
+// Waktu dibaca sebagai UTC murni (bukan zona lokal browser), supaya batas H4/D1 sama dengan candle MT5.
+function toMs(s) {
+  if (/^\d{9,13}$/.test(s)) { const n = +s; return n < 1e11 ? n * 1000 : n; }
+  const m = s.match(/(\d{4})[.\/-](\d{2})[.\/-](\d{2})(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) return Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+  return Date.parse(s);
+}
+
+// Membaca CSV dari MT5 (tab, header <DATE> <TIME> <OPEN> ...) atau TradingView/umum (koma atau titik koma).
+function parseCSV(text) {
+  const lines = text.replace(/\r/g, '').split('\n').map(s => s.trim()).filter(Boolean);
+  if (lines.length < 2) throw new Error('File CSV kosong.');
+  const delim = lines[0].includes('\t') ? '\t' : (lines[0].includes(';') ? ';' : ',');
+  const head = lines[0].split(delim).map(h => h.replace(/[<>"]/g, '').trim().toLowerCase());
+  const iO = head.indexOf('open'), iH = head.indexOf('high'), iL = head.indexOf('low'), iC = head.indexOf('close');
+  const iDT = head.indexOf('datetime'), iD = head.indexOf('date'), iT = head.indexOf('time');
+  if (iO < 0 || iH < 0 || iL < 0 || iC < 0) throw new Error('Kolom open/high/low/close tidak ditemukan.');
+  if (iDT < 0 && iD < 0 && iT < 0) throw new Error('Kolom waktu (time/date/datetime) tidak ditemukan.');
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const p = lines[i].split(delim).map(s => s.replace(/"/g, '').trim());
+    const label = iDT >= 0 ? p[iDT] : (iD >= 0 && iT >= 0 ? p[iD] + ' ' + p[iT] : p[iT >= 0 ? iT : iD]);
+    const ts = toMs(label);
+    const o = +p[iO], h = +p[iH], l = +p[iL], c = +p[iC];
+    if (![o, h, l, c, ts].every(Number.isFinite)) continue;
+    rows.push({ t: label, ts, o, h, l, c });
+  }
+  if (rows.length < 50) throw new Error('Data CSV terbaca kurang dari 50 candle. Cek format file.');
+  rows.sort((a, b) => a.ts - b.ts);
+  return rows;
+}
+
+// Median jarak antar candle (menit), untuk mendeteksi timeframe file.
+function detectMinutes(rows) {
+  const d = [];
+  for (let i = 1; i < Math.min(rows.length, 1000); i++) d.push((rows[i].ts - rows[i - 1].ts) / 60000);
+  d.sort((a, b) => a - b);
+  return d[Math.floor(d.length / 2)];
+}
+
+// Gabungkan candle kecil menjadi candle besar berdasarkan jam, bukan indeks, sehingga celah weekend tidak menggeser grup.
+function aggregateByTime(rows, bucketMin) {
+  const ms = bucketMin * 60000, map = new Map();
+  for (const r of rows) {
+    const k = Math.floor(r.ts / ms);
+    const b = map.get(k);
+    if (!b) map.set(k, { t: new Date(k * ms).toISOString(), o: r.o, h: r.h, l: r.l, c: r.c });
+    else { b.h = Math.max(b.h, r.h); b.l = Math.min(b.l, r.l); b.c = r.c; }
+  }
+  return [...map.values()];
+}
+
+// Data simulasi deterministik: seed dari nama pair, jadi setiap refresh menghasilkan candle yang sama.
+function demoLtf(sym, n) {
+  const cfg = PAIRS[sym], rnd = prng(hash(sym));
+  const vol = cfg.base * 0.00012;
+  const out = [];
+  let p = cfg.base, drift = 0;
+  for (let i = 0; i < n; i++) {
+    if (i % 90 === 0) drift = (rnd() - 0.5) * vol * 0.5;
+    const o = p;
+    const c = o + drift + (rnd() + rnd() + rnd() - 1.5) * vol * 1.5;
+    const h = Math.max(o, c) + rnd() * vol * 0.5;
+    const l = Math.min(o, c) - rnd() * vol * 0.5;
+    out.push({ t: i, o, h, l, c });
+    p = c;
+  }
+  return out;
+}
+
+function aggregate(c, r) {
+  const out = [];
+  for (let i = 0; i + r <= c.length; i += r) {
+    const g = c.slice(i, i + r);
+    out.push({
+      t: g[0].t, o: g[0].o, c: g[g.length - 1].c,
+      h: Math.max(...g.map(x => x.h)), l: Math.min(...g.map(x => x.l))
+    });
+  }
+  return out;
+}
+
+/* ========== ENGINE SMC ========== */
+function atr(c, n = 14) {
+  if (c.length < n + 1) return null;
+  let sum = 0;
+  for (let i = c.length - n; i < c.length; i++) {
+    sum += Math.max(c[i].h - c[i].l, Math.abs(c[i].h - c[i - 1].c), Math.abs(c[i].l - c[i - 1].c));
+  }
+  return sum / n;
+}
+
+// Swing fraktal: high/low tertinggi/terendah dalam jendela L candle kiri dan kanan.
+function swingPoints(c, L) {
+  const sw = [];
+  for (let i = L; i < c.length - L; i++) {
+    let hi = true, lo = true;
+    for (let k = i - L; k <= i + L; k++) {
+      if (k === i) continue;
+      if (c[k].h >= c[i].h) hi = false;
+      if (c[k].l <= c[i].l) lo = false;
+    }
+    if (hi) sw.push({ type: 'H', price: c[i].h, confirm: i + L });
+    if (lo) sw.push({ type: 'L', price: c[i].l, confirm: i + L });
+  }
+  return sw;
+}
+
+// Struktur pasar: BOS = break searah tren, CHoCH = break melawan tren. Break dihitung dari CLOSE.
+function structure(c, L) {
+  const swings = swingPoints(c, L);
+  let trend = 0, lastH = null, lastL = null, lastEvent = null;
+  for (let j = 0; j < c.length; j++) {
+    for (const s of swings) {
+      if (s.confirm !== j) continue;
+      if (s.type === 'H') lastH = s; else lastL = s;
+    }
+    if (lastH && !lastH.used && c[j].c > lastH.price) {
+      lastH.used = true;
+      lastEvent = { type: trend === -1 ? 'CHoCH' : 'BOS', dir: 1, level: lastH.price };
+      trend = 1;
+    }
+    if (lastL && !lastL.used && c[j].c < lastL.price) {
+      lastL.used = true;
+      lastEvent = { type: trend === 1 ? 'CHoCH' : 'BOS', dir: -1, level: lastL.price };
+      trend = -1;
+    }
+  }
+  return { trend, lastEvent, swings };
+}
+
+// Fair Value Gap 3 candle. Candle impuls di tengah harus berbadan cukup besar.
+function findFVGs(c, minBody) {
+  const out = [];
+  for (let k = 2; k < c.length; k++) {
+    const a = c[k - 2], b = c[k - 1], d = c[k];
+    if (Math.abs(b.c - b.o) < minBody) continue;
+    if (d.l > a.h && b.c > b.o) {
+      out.push({ dir: 1, k, bottom: a.h, top: d.l, origin: Math.min(a.l, b.l) });
+    } else if (d.h < a.l && b.c < b.o) {
+      out.push({ dir: -1, k, bottom: d.h, top: a.l, origin: Math.max(a.h, b.h) });
+    }
+  }
+  return out;
+}
+
+// touched = zona pernah disentuh. broken = close sudah menembus zona di sisi yang salah (setup batal).
+function fvgState(f, c) {
+  let touched = false;
+  for (let j = f.k + 1; j < c.length; j++) {
+    if (f.dir > 0) {
+      if (c[j].c < f.bottom) return { touched, broken: true };
+      if (c[j].l <= f.top) touched = true;
+    } else {
+      if (c[j].c > f.top) return { touched, broken: true };
+      if (c[j].h >= f.bottom) touched = true;
+    }
+  }
+  return { touched, broken: false };
+}
+
+// FVG terbaru yang searah bias, belum ditembus, dan tidak terlalu tua.
+function pickFVG(c, dir, a, maxAge) {
+  const list = findFVGs(c, 0.5 * a);
+  for (let i = list.length - 1; i >= 0; i--) {
+    const f = list[i];
+    if (c.length - 1 - f.k > maxAge) break;
+    if (f.dir !== dir) continue;
+    const st = fvgState(f, c);
+    if (!st.broken) return { ...f, touched: st.touched };
+  }
+  return null;
+}
+
+// Target = swing likuiditas di arah trade dengan jarak minimal 1.5R.
+// Jika swing tidak cukup, dilengkapi kelipatan RR 1:1.5 dari target sebelumnya.
+function buildTargets(dir, entry, R, levels) {
+  const cands = levels
+    .filter(l => dir * (l.price - entry) >= 1.5 * R)
+    .sort((x, y) => dir * (x.price - y.price));
+  const out = [];
+  for (const l of cands) {
+    if (out.length === 3) break;
+    if (out.some(o => Math.abs(o.price - l.price) < 1e-9)) continue;
+    out.push({ price: l.price, src: l.src });
+  }
+  while (out.length < 3) {
+    const last = out.length ? out[out.length - 1].price : entry;
+    out.push({ price: last + dir * R * 1.5, src: 'RR 1:1.5' });
+  }
+  return out;
+}
+
+function analyze(htfC, ltfC, style, slMethod) {
+  const st = STYLES[style];
+  const htf = structure(htfC, 3);
+  const ltf = structure(ltfC, 2);
+  const a = atr(ltfC, 14);
+  const res = { valid: false, reason: '', htf, ltf, dir: htf.trend, fvg: null };
+
+  if (!a) { res.reason = 'Data LTF terlalu sedikit untuk menghitung ATR.'; return res; }
+  if (htf.trend === 0) { res.reason = 'Struktur HTF belum jelas (belum ada BOS/CHoCH yang terkonfirmasi close). Tidak ada sinyal.'; return res; }
+
+  const dir = htf.trend;
+  const win = ltfC.slice(-200);
+  const fvg = pickFVG(win, dir, a, 80);
+  if (!fvg) {
+    res.reason = `Bias HTF ${dir > 0 ? 'bullish' : 'bearish'}, tetapi belum ada FVG ${dir > 0 ? 'bullish' : 'bearish'} yang valid dalam 80 candle LTF terakhir.`;
+    return res;
+  }
+  res.fvg = fvg;
+
+  const cur = win[win.length - 1].c;
+  const status = dir > 0
+    ? (cur > fvg.top ? 'WAIT' : (cur >= fvg.bottom ? 'ZONE' : 'BROKEN'))
+    : (cur < fvg.bottom ? 'WAIT' : (cur <= fvg.top ? 'ZONE' : 'BROKEN'));
+  if (status === 'BROKEN') { res.reason = 'Harga sudah menembus FVG. Setup dibatalkan.'; return res; }
+
+  const entry = (fvg.top + fvg.bottom) / 2;
+  const sl = slMethod === 'atr'
+    ? entry - dir * a * st.slAtr
+    : fvg.origin - dir * a * 0.1;
+  const R = Math.abs(entry - sl);
+  if (!(R > 0)) { res.reason = 'Jarak SL tidak valid.'; return res; }
+
+  const want = dir > 0 ? 'H' : 'L';
+  const levels = [];
+  htf.swings.forEach(s => { if (s.type === want) levels.push({ price: s.price, src: 'Swing HTF' }); });
+  ltf.swings.forEach(s => { if (s.type === want) levels.push({ price: s.price, src: 'Swing LTF' }); });
+  const tps = buildTargets(dir, entry, R, levels);
+
+  return Object.assign(res, {
+    valid: true, status, entry, sl, R, tps,
+    rr: tps.map(t => Math.abs(t.price - entry) / R),
+    zone: { bottom: fvg.bottom, top: fvg.top },
+    age: win.length - 1 - fvg.k,
+    touched: fvg.touched
+  });
+}
+
+/* ========== RENDER ========== */
+const SIGNAL_IDS = ['zone', 'entry', 'sl', 'tp1', 'tp2', 'tp3', 'rr1', 'rr2', 'rr3', 'tp1Src', 'tp2Src', 'tp3Src'];
+let lastKey = null;
+
+function resetRowsIfNeeded(key) {
+  if (key === lastKey) return;
+  lastKey = key;
+  [['rowTP1', 'cbTP1', 'tp-hit'], ['rowTP2', 'cbTP2', 'tp-hit'],
+   ['rowTP3', 'cbTP3', 'tp-hit'], ['rowSL', 'cbSL', 'sl-hit']].forEach(([row, cb, cls]) => {
+    $(row).classList.remove(cls);
+    $(cb).checked = false;
+  });
+}
+
+function toggleRow(row, cls, cb) { $(row).classList.toggle(cls, cb.checked); }
+
+function clearSignal(reason) {
+  $('sigDir').className = 'font-bold text-xs px-2.5 py-0.5 rounded b-none';
+  $('sigDir').textContent = '—';
+  $('statusBadge').className = 'px-2.5 py-1 rounded text-[11px] font-bold uppercase b-none';
+  $('statusBadge').textContent = 'NO TRADE';
+  SIGNAL_IDS.forEach(id => { $(id).textContent = '—'; });
+  $('reasonBox').textContent = reason;
+}
+
+function renderScanner(res, d) {
+  const F = v => fmt(v, d);
+  const up = 'text-emerald-400', dn = 'text-red-400', nt = 'text-slate-400', wt = 'text-amber-400';
+  const h = res.htf, l = res.ltf;
+  put('sHtf', h.trend ? `${h.trend > 0 ? 'BULLISH' : 'BEARISH'} · ${h.lastEvent.type}` : 'NETRAL',
+      h.trend > 0 ? up : h.trend < 0 ? dn : nt);
+  put('sLtf', l.trend ? `${l.trend > 0 ? 'BULLISH' : 'BEARISH'} · ${l.lastEvent.type}` : 'NETRAL',
+      l.trend > 0 ? up : l.trend < 0 ? dn : nt);
+  put('sFvg', res.fvg ? `FVG ${res.fvg.dir > 0 ? 'bull' : 'bear'} ${F(res.fvg.bottom)}–${F(res.fvg.top)}` : 'Tidak ada FVG searah',
+      res.fvg ? wt : nt);
+  put('sTrig', !res.valid ? 'Belum ada trigger' : (res.status === 'ZONE' ? 'Harga di dalam zona' : 'Menunggu retest'),
+      !res.valid ? nt : (res.status === 'ZONE' ? up : wt));
+}
+
+function renderChecks(res, d) {
+  const F = v => fmt(v, d);
+  const buy = res.dir > 0;
+  const items = [
+    [true, `Bias HTF ${buy ? 'BULLISH' : 'BEARISH'}: ${res.htf.lastEvent.type} terakhir di ${F(res.htf.lastEvent.level)}`],
+    [true, `FVG ${buy ? 'bullish' : 'bearish'} belum ditembus (usia ${res.age} candle${res.touched ? ', pernah disentuh' : ''})`],
+    [res.ltf.trend === res.dir, `Struktur LTF ${res.ltf.trend === res.dir ? 'searah' : 'belum searah (opsional)'}`],
+    [res.status === 'ZONE', res.status === 'ZONE' ? 'Harga sudah di dalam zona' : 'Menunggu harga kembali ke zona'],
+    [res.rr[0] >= 1.5, `RR TP1 ≥ 1 : 1.5 (${res.rr[0].toFixed(2)})`]
+  ];
+  $('checks').innerHTML = items.map(([ok, t]) =>
+    `<li class="${ok ? 'text-emerald-400' : 'text-slate-500'}">${ok ? '✓' : '○'} ${t}</li>`).join('');
+}
+
+function renderSignal(res, d, st, slm) {
+  const F = v => fmt(v, d);
+  if (!res.valid) {
+    clearSignal(res.reason);
+    $('checks').innerHTML = '';
+    resetRowsIfNeeded('none');
+    return;
+  }
+  const buy = res.dir > 0;
+  const zoneActive = res.status === 'ZONE';
+
+  $('sigDir').className = 'font-bold text-xs px-2.5 py-0.5 rounded ' + (buy ? 'b-buy' : 'b-sell');
+  $('sigDir').textContent = buy ? 'BUY / LONG' : 'SELL / SHORT';
+  $('statusBadge').className = 'px-2.5 py-1 rounded text-[11px] font-bold uppercase ' +
+    (zoneActive ? (buy ? 'b-buy' : 'b-sell') : 'b-wait');
+  $('statusBadge').textContent = zoneActive ? 'ZONA AKTIF' : 'LIMIT · WAIT RETEST';
+
+  $('zone').textContent = F(res.zone.bottom) + ' – ' + F(res.zone.top);
+  $('entry').textContent = F(res.entry);
+  $('sl').textContent = F(res.sl);
+  res.tps.forEach((t, i) => {
+    const n = i + 1;
+    $('tp' + n).textContent = F(t.price);
+    $('tp' + n + 'Src').textContent = t.src;
+    $('rr' + n).textContent = 'RR 1:' + res.rr[i].toFixed(2);
+  });
+
+  resetRowsIfNeeded(res.dir + '|' + F(res.entry) + '|' + F(res.sl));
+  renderChecks(res, d);
+  $('reasonBox').textContent =
+    `${buy ? 'BUY' : 'SELL'} searah bias HTF ${st.htf.txt}. Entry limit ${F(res.entry)} di tengah FVG. ` +
+    `SL ${F(res.sl)} (${slm === 'atr' ? 'ATR ' + st.slAtr + '× dari entry' : 'di luar origin impuls + buffer 0.1 ATR'}). ` +
+    `TP1 ${F(res.tps[0].price)}, TP2 ${F(res.tps[1].price)}, TP3 ${F(res.tps[2].price)}. ` +
+    `Data yang sama selalu menghasilkan sinyal yang sama.`;
+}
+
+function renderAll(sym, style, slm, res, src, mode) {
+  $('errLine').textContent = '';
+  const d = PAIRS[sym].dec, st = STYLES[style];
+  $('srcBadge').textContent = src;
+  $('srcBadge').className = 'text-xs px-2.5 py-1 rounded-full border font-semibold ' + (mode === 'demo' ? 'b-wait' : 'b-buy');
+  renderScanner(res, d);
+  renderSignal(res, d, st, slm);
+  const p = $('panel');
+  p.classList.remove('flash'); void p.offsetWidth; p.classList.add('flash');
+}
+
+// Menerjemahkan pesan error menjadi petunjuk yang bisa langsung ditindaklanjuti.
+function explainError(msg) {
+  if (/failed to fetch|networkerror|load failed/i.test(msg)) return msg + ' → browser tidak bisa menghubungi Twelve Data (biasanya CORS dari file lokal, atau jaringan).';
+  if (/apikey|api key|incorrect|invalid/i.test(msg)) return msg + ' → API key salah atau belum aktif. Periksa lagi key di dashboard Twelve Data.';
+  if (/credit|minute|limit|429/i.test(msg)) return msg + ' → kuota gratis sementara habis. Tunggu 1 menit lalu coba lagi.';
+  return msg;
+}
+
+function showError(msg) {
+  console.error(msg);
+  $('errLine').textContent = explainError(msg);
+  ['sHtf', 'sLtf', 'sFvg', 'sTrig'].forEach(id => put(id, '—', 'text-slate-400'));
+  $('srcBadge').textContent = 'ERROR';
+  $('srcBadge').className = 'text-xs px-2.5 py-1 rounded-full border font-semibold b-sell';
+  clearSignal('⚠ ' + msg);
+  $('statusBadge').className = 'px-2.5 py-1 rounded text-[11px] font-bold uppercase b-sell';
+  $('statusBadge').textContent = 'DATA ERROR';
+  $('checks').innerHTML = '';
+  resetRowsIfNeeded('none');
+}
+
+/* ========== CONTROLLER ========== */
+let csvRows = null, csvName = '';
+let busy = false, pending = false;
+
+async function scan() {
+  if (busy) { pending = true; return; }
+  busy = true;
+  const sym = $('pairSel').value, style = $('styleSel').value;
+  const slm = $('slSel').value, mode = $('modeSel').value;
+  const st = STYLES[style];
+  $('statusBadge').className = 'px-2.5 py-1 rounded text-[11px] font-bold uppercase b-wait';
+  $('statusBadge').textContent = 'SCANNING…';
+  try {
+    let htfC, ltfC, src;
+    if (mode === 'demo') {
+      const all = demoLtf(sym, st.ratio * 150);
+      htfC = aggregate(all, st.ratio);
+      ltfC = all.slice(-300);
+      src = 'DEMO · data simulasi';
+    } else if (mode === 'csv') {
+      if (!csvRows) throw new Error('Upload file CSV dulu.');
+      const ltfMin = LTF_MIN[style], det = detectMinutes(csvRows);
+      if (Math.abs(det - ltfMin) > 0.5) throw new Error(`CSV terdeteksi ${det.toFixed(0)} menit, gaya ${st.label} butuh ${ltfMin} menit (LTF).`);
+      ltfC = csvRows.slice(-300);
+      // HTF diturunkan dari file LTF. Candle HTF terakhir dibuang karena bisa belum lengkap.
+      htfC = aggregateByTime(csvRows, ltfMin * st.ratio).slice(0, -1).slice(-150);
+      src = 'CSV · ' + csvName;
+    } else if (mode === 'td') {
+      const key = $('tdKey').value.trim();
+      if (!key) throw new Error('Isi Twelve Data API key dulu di kolom API key.');
+      [htfC, ltfC] = await Promise.all([
+        fetchTD(sym, st.htf.td, 150, key),
+        fetchTD(sym, st.ltf.td, 300, key)
+      ]);
+      if (htfC.length < 20 || ltfC.length < 50) throw new Error('Jumlah candle yang diterima terlalu sedikit.');
+      src = 'TWELVE DATA · ' + ltfC[ltfC.length - 1].t;
+    } else if (mode === 'binance') {
+      [htfC, ltfC] = await Promise.all([
+        fetchBinance(sym, st.htf.td, 150),
+        fetchBinance(sym, st.ltf.td, 300)
+      ]);
+      src = 'BINANCE · ' + BINANCE[sym] + ' · ' + ltfC[ltfC.length - 1].t;
+    } else {
+      if (!WORKER_URL) throw new Error('WORKER_URL belum diisi di dalam file.');
+      [htfC, ltfC] = await Promise.all([
+        fetchCandles(sym, st.htf.td, 150),
+        fetchCandles(sym, st.ltf.td, 300)
+      ]);
+      if (htfC.length < 20 || ltfC.length < 50) throw new Error('Jumlah candle yang diterima terlalu sedikit.');
+      src = 'LIVE · ' + ltfC[ltfC.length - 1].t;
+    }
+    renderAll(sym, style, slm, analyze(htfC, ltfC, style, slm), src, mode);
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    busy = false;
+    if (pending) { pending = false; scan(); }
+  }
+}
+
+function loadCharts() {
+  const sym = $('pairSel').value, st = STYLES[$('styleSel').value];
+  $('htfLbl').textContent = st.htf.txt;
+  $('ltfLbl').textContent = st.ltf.txt;
+  $('tv_htf').innerHTML = '';
+  $('tv_ltf').innerHTML = '';
+  if (!window.TradingView) return;
+  const base = {
+    autosize: true, symbol: PAIRS[sym].tv, timezone: 'Asia/Jakarta', theme: 'dark', style: '1',
+    locale: 'id', toolbar_bg: '#1e222d', enable_publishing: false, allow_symbol_change: false
+  };
+  new TradingView.widget({ ...base, interval: st.htf.tv, hide_side_toolbar: true, container_id: 'tv_htf' });
+  new TradingView.widget({ ...base, interval: st.ltf.tv, hide_side_toolbar: false, container_id: 'tv_ltf' });
+}
+
+function init() {
+  const groups = {};
+  Object.keys(PAIRS).forEach(s => {
+    const g = PAIRS[s].group;
+    (groups[g] = groups[g] || []).push(s);
+  });
+  $('pairSel').innerHTML = Object.keys(groups).map(g =>
+    `<optgroup label="${g}">` +
+    groups[g].map(s => `<option value="${s}">${s}${PAIRS[s].name ? ' (' + PAIRS[s].name + ')' : ''}</option>`).join('') +
+    `</optgroup>`
+  ).join('');
+  $('styleSel').innerHTML = Object.keys(STYLES).map(k =>
+    `<option value="${k}">${STYLES[k].label} (${STYLES[k].htf.txt} + ${STYLES[k].ltf.txt})</option>`
+  ).join('');
+  $('pairSel').value = 'XAU/USD';
+  $('styleSel').value = 'scalping';
+  if (!WORKER_URL) $('modeSel').querySelector('option[value="live"]').remove(); // Worker tidak bisa dipakai tanpa URL
+  $('modeSel').value = 'demo';
+
+  $('pairSel').onchange = () => { loadCharts(); scan(); };
+  $('styleSel').onchange = () => { loadCharts(); scan(); };
+  $('slSel').onchange = scan;
+  $('modeSel').onchange = scan;
+  try {
+    const saved = localStorage.getItem('tdKey');
+    if (saved) { $('tdKey').value = saved; $('tdRemember').checked = true; $('modeSel').value = 'td'; }
+  } catch (e) { /* localStorage tidak tersedia */ }
+  $('tdKey').onchange = () => {
+    saveKey();
+    if ($('tdKey').value.trim()) { $('modeSel').value = 'td'; scan(); }
+  };
+  $('tdRemember').onchange = saveKey;
+  $('scanBtn').onclick = scan;
+  $('csvFile').onchange = async e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    try {
+      csvRows = parseCSV(await f.text());
+      csvName = f.name;
+      $('csvInfo').textContent = `${f.name} · ${csvRows.length} candle · ±${detectMinutes(csvRows).toFixed(0)} menit/candle`;
+    } catch (err) {
+      csvRows = null;
+      $('csvInfo').textContent = '⚠ ' + err.message;
+    }
+    $('modeSel').value = 'csv';
+    scan();
+  };
+
+
+  setInterval(() => { if (['live', 'binance', 'td'].includes($('modeSel').value)) scan(); }, REFRESH_MS);
+
+  loadCharts();
+  scan();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString('id-ID'); }, 1000);
+  $('errLine').textContent = 'Memuat…';
+  try {
+    init();
+  } catch (e) {
+    console.error(e);
+    showError('Init gagal: ' + e.message);
+  }
+  if ($('errLine').textContent === 'Memuat…') $('errLine').textContent = '';
+});
+</script>
+</body>
+</html>
